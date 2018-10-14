@@ -13,7 +13,7 @@ from utils.sort import Sort
 from utils.actions import actionPredictor
 from utils.joint_preprocess import *
 
-import settings
+#import settings
 
 logger = logging.getLogger('TfPoseEstimator-WebCam')
 logger.setLevel(logging.DEBUG)
@@ -23,10 +23,173 @@ formatter = logging.Formatter('[%(asctime)s] [%(name)s] [%(levelname)s] [%(messa
 ch.setFormatter(formatter)
 logger.addHandler(ch)
 
-fps_time = 0
-mode = {'Pose Estimation': 'estimation',
-        'Tracking': 'tracking',
-        'Action Recognition': 'recognition'}
+class actions:
+
+    def __init__(self, arguments):
+        self.arguments = arguments
+
+        # Frame clip length
+        self.L = 20
+        # Frame window dim
+        self.winWidth =640
+        self.winHeight = 480
+
+        self.move_status = ['', 'stand', 'sit', 'walk', 'walk close', 'walk away', 'sit down', 'stand up']
+        self.c = np.random.rand(32, 3) * 255
+        self.sort_max_age = 20
+        self.sort_min_hit = 3
+
+        self.fps_time = 0
+        self.mode = {'Pose Estimation': 'estimation',
+                     'Tracking': 'tracking',
+                     'Action Recognition': 'recognition'}
+
+        w, h = model_wh(self.arguments.resize)
+        if w > 0 and h > 0:
+            self.estimator = TfPoseEstimator(get_graph_path(self.arguments.model), target_size=(w, h))
+        else:
+            self.estimator = TfPoseEstimator(get_graph_path(self.arguments.model), target_size=(432, 368))
+
+        self.cam = cv2.VideoCapture(self.arguments.camera)
+
+        self.tracker = Sort(self.sort_max_age, self.sort_min_hit)
+
+        # Object label container for action recognition
+        self.current = []
+        self.previous = []
+        self.memory = {}
+        self.data = {}
+
+    def proceed(self):
+        self._read_frame_()
+
+        if self.ret_val and self.arguments.mode == self.mode['Pose Estimation']:
+            self._perform_estimation_()
+
+        elif self.ret_val and self.arguments.mode == self.mode['Tracking']:
+            self._perform_tracking_()
+
+        elif self.ret_val and self.arguments.mode == self.mode['Action Recognition']:
+            self._perform_recognition_()
+
+        else:
+            sys.exit('Abort...please choose correct action mode from "estimation" "tracking" "recognition"')
+
+        self._output_()
+
+
+    def _perform_estimation_(self):
+        self.humans = self.estimator.inference(self.image)
+        self.image = TfPoseEstimator.draw_humans(self.image, self.humans, imgcopy=False)
+
+    def _perform_tracking_(self):
+        self.humans = self.estimator.inference(self.image)
+        self.image, joints, bboxes, xcenter, sk = TfPoseEstimator.get_skeleton(self.image, self.humans, imgcopy=False)
+
+        height = self.image.shape[0]
+        width = self.image.shape[1]
+
+        if bboxes:
+            result = np.array(bboxes)
+            det = result[:, 0:5]
+            det[:, 0] = det[:, 0] * width
+            det[:, 1] = det[:, 1] * height
+            det[:, 2] = det[:, 2] * width
+            det[:, 3] = det[:, 3] * height
+            trackers = self.tracker.update(det)
+
+            for d in trackers:
+                xmin = int(d[0])
+                ymin = int(d[1])
+                xmax = int(d[2])
+                ymax = int(d[3])
+                label = int(d[4])
+                cv2.rectangle(self.image, (xmin, ymin), (xmax, ymax),
+                                (int(self.c[label % 32, 0]),
+                                int(self.c[label % 32, 1]),
+                                int(self.c[label % 32, 2])), 4) 
+
+    def _perform_recognition_(self):
+        self.humans = self.estimator.inference(self.image)
+        self.image, joints, bboxes, xcenter, sk = TfPoseEstimator.get_skeleton(self.image, self.humans, imgcopy=False)
+
+        height = self.image.shape[0]
+        width = self.image.shape[1]
+
+        if bboxes:
+            result = np.array(bboxes)
+            det = result[:, 0:5]
+            det[:, 0] = det[:, 0] * width
+            det[:, 1] = det[:, 1] * height
+            det[:, 2] = det[:, 2] * width
+            det[:, 3] = det[:, 3] * height
+            trackers = self.tracker.update(det)
+            self.current = [i[-1] for i in trackers]
+
+            if len(self.previous) > 0:
+                for item in self.previous:
+                    if item not in self.current and item in self.data:
+                        del self.data[item]
+                    if item not in self.current and item in self.memory:
+                        del self.memory[item]
+
+            self.previous = self.current
+
+            for d in trackers:
+                xmin = int(d[0])
+                ymin = int(d[1])
+                xmax = int(d[2])
+                ymax = int(d[3])
+                label = int(d[4])
+                try:
+                    j = np.argmin(np.array([abs(i - (xmax + xmin) / 2.) for i in xcenter]))
+                except:
+                    j = 0
+
+                if joint_filter(joints[j]):
+                    joints[j] = joint_completion(joint_completion(joints[j]))
+                    if label not in self.data:
+                        self.data[label] = [joints[j]]
+                        self.memory[label] = 0
+                    else:
+                        self.data[label].append(joints[j])
+
+                    if len(self.data[label]) == self.L:
+                        pred = actionPredictor().move_status(self.data[label])
+                        if pred == 0:
+                            pred = self.memory[label]
+                        else:
+                            self.memory[label] = pred
+                        self.data[label].pop(0)
+
+                        location = self.data[label][-1][1]
+                        if location[0] <= 30:
+                            location = (51, location[1])
+                        if location[1] <= 10:
+                            location = (location[0], 31)
+
+                        cv2.putText(self.image, self.move_status[pred], (location[0] - 30, location[1] - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8,
+                            (0, 255, 0), 2)
+
+                cv2.rectangle(self.image, (xmin, ymin), (xmax, ymax),
+                             (int(self.c[label % 32, 0]),
+                                int(self.c[label % 32, 1]),
+                                int(self.c[label % 32, 2])), 4)
+
+    def _read_frame_(self):
+        self.ret_val, self.image = self.cam.read()
+
+        self.image = cv2.resize(self.image, (self.winWidth, self.winHeight))
+
+    def _output_(self):
+        cv2.putText(self.image,
+                        "FPS: %f" % (1.0 / (time.time() - self.fps_time)),
+                        (10, 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                        (0, 255, 0), 2)
+        cv2.imshow('tf-pose-estimation result', self.image)
+        self.fps_time = time.time()
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='tf-pose-estimation realtime webcam')
@@ -38,149 +201,12 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    logger.debug('initialization %s : %s' % (args.model, get_graph_path(args.model)))
-
-    w, h = model_wh(args.resize)
-    if w > 0 and h > 0:
-        estimator = TfPoseEstimator(get_graph_path(args.model), target_size=(w, h))
-    else:
-        estimator = TfPoseEstimator(get_graph_path(args.model), target_size=(432, 368))
-
-    #logger.debug('cam read+')
-
-    cam = cv2.VideoCapture(args.camera)
-    ret_val, image = cam.read()
-
-    #logger.info('cam image=%dx%d' % (image.shape[1], image.shape[0]))
-
-    tracker = Sort(settings.sort_max_age, settings.sort_min_hit)
-
-    # Object label container for action recognition
-    current = []
-    previous = []
-    memory = {}
-    data = {}
+    act = actions(args)
 
     while True:
-        ret_val, image = cam.read()
-
-        image = cv2.resize(image, (settings.winWidth, settings.winHeight))
-        #image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-        if ret_val and args.mode==mode['Pose Estimation']:
-            #logger.debug('image process+')
-            humans = estimator.inference(image) 
-
-            #logger.debug('postprocess+')
-            image = TfPoseEstimator.draw_humans(image, humans, imgcopy=False)   
-
-        elif ret_val and args.mode==mode['Tracking']:
-            humans = estimator.inference(image)
-            image, joints, bboxes, xcenter, sk= TfPoseEstimator.get_skeleton(image, humans, imgcopy=False)
-            height = image.shape[0]
-            width = image.shape[1]
-
-            if bboxes:
-                result = np.array(bboxes)
-                det = result[:, 0:5]
-                det[:, 0] = det[:, 0] * width
-                det[:, 1] = det[:, 1] * height
-                det[:, 2] = det[:, 2] * width
-                det[:, 3] = det[:, 3] * height
-                trackers = tracker.update(det)
-
-                for d in trackers:
-                    xmin = int(d[0])
-                    ymin = int(d[1])
-                    xmax = int(d[2])
-                    ymax = int(d[3])
-                    label = int(d[4])
-                    cv2.rectangle(image, (xmin, ymin), (xmax, ymax),
-                                    (int(settings.c[label % 32, 0]),
-                                    int(settings.c[label % 32, 1]),
-                                    int(settings.c[label % 32, 2])), 4) 
-
-        elif ret_val and args.mode==mode['Action Recognition']:
-            humans = estimator.inference(image)
-            img_ori = np.copy(image)
-
-            image, joints, bboxes, xcenter, sk = TfPoseEstimator.get_skeleton(image, humans, imgcopy=False)
-            height = image.shape[0]
-            width = image.shape[1]
-
-            if bboxes:
-                result = np.array(bboxes)
-                det = result[:, 0:5]
-                det[:, 0] = det[:, 0] * width
-                det[:, 1] = det[:, 1] * height
-                det[:, 2] = det[:, 2] * width
-                det[:, 3] = det[:, 3] * height
-                trackers = tracker.update(det)
-                current = [i[-1] for i in trackers]
-
-                if len(previous) > 0:
-                    for item in previous:
-                        if item not in current and item in data:
-                            del data[item]
-                        if item not in current and item in memory:
-                            del memory[item]
-
-                previous = current
-
-                for d in trackers:
-                    xmin = int(d[0])
-                    ymin = int(d[1])
-                    xmax = int(d[2])
-                    ymax = int(d[3])
-                    label = int(d[4])
-                    try:
-                        j = np.argmin(np.array([abs(i - (xmax + xmin) / 2.) for i in xcenter]))
-                    except:
-                        j = 0
-
-                    if joint_filter(joints[j]):
-                        joints[j] = joint_completion(joint_completion(joints[j]))
-                        if label not in data:
-                            data[label] = [joints[j]]
-                            memory[label] = 0
-                        else:
-                            data[label].append(joints[j])
-
-                        if len(data[label]) == settings.L:
-                            pred = actionPredictor().move_status(data[label])
-                            if pred == 0:
-                                pred = memory[label]
-                            else:
-                                memory[label] = pred
-                            data[label].pop(0)
-
-                            location = data[label][-1][1]
-                            if location[0] <= 30:
-                                location = (51, location[1])
-                            if location[1] <= 10:
-                                location = (location[0], 31)
-
-                            cv2.putText(image, settings.move_status[pred], (location[0] - 30, location[1] - 10),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.8,
-                                (0, 255, 0), 2)
-
-                    cv2.rectangle(image, (xmin, ymin), (xmax, ymax),
-                    	         (int(settings.c[label % 32, 0]),
-                    	         	int(settings.c[label % 32, 1]),
-                    	         	int(settings.c[label % 32, 2])), 4)
-
-        else:
-            sys.exit('Abort...please choose correct running mode (estimation / tracking / recognition')
-
-        cv2.putText(image,
-                        "FPS: %f" % (1.0 / (time.time() - fps_time)),
-                        (10, 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
-                        (0, 255, 0), 2)
-        cv2.imshow('tf-pose-estimation result', image)
-        fps_time = time.time() 
-
+        # Perform user intended action
+        act.proceed()
         if cv2.waitKey(1) == 27:
             break
-        #logger.debug('finished+')
 
     cv2.destroyAllWindows()
