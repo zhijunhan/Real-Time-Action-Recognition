@@ -56,10 +56,10 @@ if __name__ == '__main__':
     tracker = Sort(settings.sort_max_age, settings.sort_min_hit)
 
     # Object label container for action recognition
-    #current = []
-    #previous = []
-    #memory = {}
-    #data = {}
+    current = []
+    previous = []
+    memory = {}
+    data = {}
 
     while True:
         ret_val, image = cam.read()
@@ -107,11 +107,6 @@ if __name__ == '__main__':
             image, joints, bboxes, xcenter, sk = TfPoseEstimator.get_skeleton(image, humans, imgcopy=False)
             height = image.shape[0]
             width = image.shape[1]
-
-            current = []
-            previous = []
-            memory = {}
-            data = {}
 
             if bboxes:
                 result = np.array(bboxes)
