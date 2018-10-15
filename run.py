@@ -10,34 +10,27 @@ from pose.estimator import TfPoseEstimator
 from pose.networks import get_graph_path, model_wh
 
 from utils.sort import Sort
-from utils.actions import actionPredictor
+from utils.actions import actionPredictor, actionPredictor_params
 from utils.joint_preprocess import *
 
-#import settings
+#logger = logging.getLogger('TfPoseEstimator-WebCam')
+#logger.setLevel(logging.DEBUG)
+#ch = logging.StreamHandler()
+#ch.setLevel(logging.DEBUG)
+#formatter = logging.Formatter('[%(asctime)s] [%(name)s] [%(levelname)s] [%(message)s')
+#ch.setFormatter(formatter)
+#logger.addHandler(ch)
 
-logger = logging.getLogger('TfPoseEstimator-WebCam')
-logger.setLevel(logging.DEBUG)
-ch = logging.StreamHandler()
-ch.setLevel(logging.DEBUG)
-formatter = logging.Formatter('[%(asctime)s] [%(name)s] [%(levelname)s] [%(message)s')
-ch.setFormatter(formatter)
-logger.addHandler(ch)
-
-class actions:
+class actions(object):
 
     def __init__(self, arguments):
         self.arguments = arguments
 
-        # Frame clip length
-        self.L = 20
         # Frame window dim
         self.winWidth =640
         self.winHeight = 480
 
-        self.move_status = ['', 'stand', 'sit', 'walk', 'walk close', 'walk away', 'sit down', 'stand up']
-        self.c = np.random.rand(32, 3) * 255
-        self.sort_max_age = 20
-        self.sort_min_hit = 3
+        actionPredictor_params.__init__(self)
 
         self.fps_time = 0
         self.mode = {'Pose Estimation': 'estimation',
@@ -52,13 +45,10 @@ class actions:
 
         self.cam = cv2.VideoCapture(self.arguments.camera)
 
+        # Tracker based on Sort
+        self.sort_max_age = 20
+        self.sort_min_hit = 3
         self.tracker = Sort(self.sort_max_age, self.sort_min_hit)
-
-        # Object label container for action recognition
-        self.current = []
-        self.previous = []
-        self.memory = {}
-        self.data = {}
 
     def proceed(self):
         self._read_frame_()
@@ -110,6 +100,9 @@ class actions:
                                 int(self.c[label % 32, 2])), 4) 
 
     def _perform_recognition_(self):
+
+        self.predictor = actionPredictor()
+
         self.humans = self.estimator.inference(self.image)
         self.image, joints, bboxes, xcenter, sk = TfPoseEstimator.get_skeleton(self.image, self.humans, imgcopy=False)
 
@@ -124,16 +117,17 @@ class actions:
             det[:, 2] = det[:, 2] * width
             det[:, 3] = det[:, 3] * height
             trackers = self.tracker.update(det)
+
             self.current = [i[-1] for i in trackers]
 
-            if len(self.previous) > 0:
-                for item in self.previous:
-                    if item not in self.current and item in self.data:
-                        del self.data[item]
-                    if item not in self.current and item in self.memory:
-                        del self.memory[item]
+#            if len(self.previous) > 0:
+#                for item in self.previous:
+#                    if item not in self.current and item in self.data:
+#                        del self.data[item]
+#                    if item not in self.current and item in self.memory:
+#                        del self.memory[item]
 
-            self.previous = self.current
+#            self.previous = self.current
 
             for d in trackers:
                 xmin = int(d[0])
@@ -141,6 +135,7 @@ class actions:
                 xmax = int(d[2])
                 ymax = int(d[3])
                 label = int(d[4])
+
                 try:
                     j = np.argmin(np.array([abs(i - (xmax + xmin) / 2.) for i in xcenter]))
                 except:
@@ -155,7 +150,8 @@ class actions:
                         self.data[label].append(joints[j])
 
                     if len(self.data[label]) == self.L:
-                        pred = actionPredictor().move_status(self.data[label])
+                        pred = self.predictor.move_status(self.data[label])
+
                         if pred == 0:
                             pred = self.memory[label]
                         else:

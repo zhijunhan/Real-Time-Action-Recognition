@@ -1,13 +1,28 @@
 # coding=utf8
+import numpy as np
 
+class actionPredictor_params(object):
+    def __init__(self):
+
+        # Frame clip length
+        self.L = 20
+
+        self.move_status = ['', 'stand', 'sit', 'walk', 'walk close', 'walk away', 'sit down', 'stand up']
+        self.c = np.random.rand(32, 3) * 255
+
+        # Object label container for action recognition
+        #self.current = []
+        #self.previous = []
+        self.memory = {}
+        self.data = {}
 
 class actionPredictor(object):
 
     def __init__(self):
         pass
 
-    @staticmethod
-    def move_status(joints):
+    #@staticmethod
+    def move_status(self, joints):
 
         init_x = float(joints[0][1][0] + joints[0][8][0] + joints[0][11][0]) / 3
         init_y = float(joints[0][1][1] + joints[0][8][1] + joints[0][11][1]) / 3
