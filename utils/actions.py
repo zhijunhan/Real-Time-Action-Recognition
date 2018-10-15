@@ -5,7 +5,7 @@ class actionPredictor_params(object):
     def __init__(self):
 
         # Frame clip length
-        self.L = 20
+        self.step = 20
 
         self.move_status = ['', 'stand', 'sit', 'walk', 'walk close', 'walk away', 'sit down', 'stand up']
         self.c = np.random.rand(32, 3) * 255
@@ -95,3 +95,7 @@ class actionPredictor(object):
             return 3
         else:
             return 0
+
+    def act_mv_avg(self, joints):
+        #step = len(joints[])
+        pass

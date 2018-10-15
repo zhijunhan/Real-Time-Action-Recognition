@@ -13,13 +13,13 @@ from utils.sort import Sort
 from utils.actions import actionPredictor, actionPredictor_params
 from utils.joint_preprocess import *
 
-#logger = logging.getLogger('TfPoseEstimator-WebCam')
-#logger.setLevel(logging.DEBUG)
-#ch = logging.StreamHandler()
-#ch.setLevel(logging.DEBUG)
-#formatter = logging.Formatter('[%(asctime)s] [%(name)s] [%(levelname)s] [%(message)s')
-#ch.setFormatter(formatter)
-#logger.addHandler(ch)
+logger = logging.getLogger('TfPoseEstimator-WebCam')
+logger.setLevel(logging.DEBUG)
+ch = logging.StreamHandler()
+ch.setLevel(logging.DEBUG)
+formatter = logging.Formatter('[%(asctime)s] [%(name)s] [%(levelname)s] [%(message)s')
+ch.setFormatter(formatter)
+logger.addHandler(ch)
 
 class actions(object):
 
@@ -136,6 +136,8 @@ class actions(object):
                 ymax = int(d[3])
                 label = int(d[4])
 
+                logger.debug('label is: %d' % (label))
+
                 try:
                     j = np.argmin(np.array([abs(i - (xmax + xmin) / 2.) for i in xcenter]))
                 except:
@@ -143,14 +145,19 @@ class actions(object):
 
                 if joint_filter(joints[j]):
                     joints[j] = joint_completion(joint_completion(joints[j]))
+
                     if label not in self.data:
+                        logger.debug('label is: %d' % (label))
+
                         self.data[label] = [joints[j]]
                         self.memory[label] = 0
                     else:
                         self.data[label].append(joints[j])
 
-                    if len(self.data[label]) == self.L:
+                    if len(self.data[label]) == self.step:
                         pred = self.predictor.move_status(self.data[label])
+
+                        logger.debug(len(self.data[label]))
 
                         if pred == 0:
                             pred = self.memory[label]
