@@ -33,6 +33,7 @@ class actions(object):
         actionPredictor_params.__init__(self)
 
         self.fps_time = 0
+        #self.step = 15
         self.mode = {'Pose Estimation': 'estimation',
                      'Tracking': 'tracking',
                      'Action Recognition': 'recognition'}
@@ -120,14 +121,13 @@ class actions(object):
 
             self.current = [i[-1] for i in trackers]
 
-#            if len(self.previous) > 0:
-#                for item in self.previous:
-#                    if item not in self.current and item in self.data:
-#                        del self.data[item]
-#                    if item not in self.current and item in self.memory:
-#                        del self.memory[item]
-
-#            self.previous = self.current
+            if len(self.previous) > 0:
+                for item in self.previous:
+                    if item not in self.current and item in self.data:
+                        del self.data[item]
+                    if item not in self.current and item in self.memory:
+                        del self.memory[item]
+            self.previous = self.current
 
             for d in trackers:
                 xmin = int(d[0])
@@ -166,6 +166,9 @@ class actions(object):
                         self.data[label].pop(0)
 
                         location = self.data[label][-1][1]
+                        #location = functools.reduce(lambda x, y: x + y, self.data[label][:][1]) / len(self.data[label][:][1])
+                        #location = sum(self.data[label][:][1]) / float(len(self.data[label][:][1]))
+
                         if location[0] <= 30:
                             location = (51, location[1])
                         if location[1] <= 10:
@@ -186,13 +189,20 @@ class actions(object):
         self.image = cv2.resize(self.image, (self.winWidth, self.winHeight))
 
     def _output_(self):
+        # Calculate frame averaging step
+        FPS = float(1.0 / (time.time() - self.fps_time))
+        logger.debug('FPS: %f' % FPS)
+
+
+        #self.step = int(0.7 * FPS)
+        #logger.debug('step: %d' % self.step)
+
         cv2.putText(self.image,
                         "FPS: %f" % (1.0 / (time.time() - self.fps_time)),
                         (10, 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
                         (0, 255, 0), 2)
         cv2.imshow('tf-pose-estimation result', self.image)
         self.fps_time = time.time()
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='tf-pose-estimation realtime webcam')

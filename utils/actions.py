@@ -5,14 +5,16 @@ class actionPredictor_params(object):
     def __init__(self):
 
         # Frame clip length
-        self.step = 20
+        self.step = 15
 
-        self.move_status = ['', 'stand', 'sit', 'walk', 'walk close', 'walk away', 'sit down', 'stand up']
+        #self.move_status = ['', 'stand', 'sit', 'walk', 'walk close', 'walk away', 'sit down', 'stand up']
+        self.move_status = ['', 'Not Crossing', 'Not Crossing', 'Crossing', 'walk close', 'walk away', 'sit down', 'stand up']
+
         self.c = np.random.rand(32, 3) * 255
 
         # Object label container for action recognition
-        #self.current = []
-        #self.previous = []
+        self.current = []
+        self.previous = []
         self.memory = {}
         self.data = {}
 
@@ -60,10 +62,12 @@ class actionPredictor(object):
             else:
                 if t < 1.7:
                     if h1 >= 1.08:
-                        return 4
+                        #return 4
+                        return 3
 
                     elif h1 < 0.92:
-                        return 5
+                        #return 5
+                        return 3
                     else:
                         return 0
                 else:
@@ -86,9 +90,11 @@ class actionPredictor(object):
                 end_yc = 0.0
             th_yc = 0.1
             if yc >= 25 and abs(end_yc - init_yc) >= th_yc:
-                return 6
+                #return 6
+                return 1
             elif yc < -20 and abs(end_yc - init_yc) >= th_yc:
-                return 7
+                #return 7
+                return 2
             else:
                 return 0
         elif abs(xc) > 30. and abs(yc) < 30.:
