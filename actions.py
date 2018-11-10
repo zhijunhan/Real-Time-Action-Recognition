@@ -10,8 +10,6 @@ from pose.estimator import TfPoseEstimator
 from pose.networks import get_graph_path, model_wh
 
 from utils.sort import Sort
-#from utils.actions import actionPredictor, actionPredictor_params
-#from utils.joint_preprocess import *
 
 logger = logging.getLogger('TfPoseEstimator-WebCam')
 logger.setLevel(logging.DEBUG)
@@ -28,7 +26,7 @@ class actionPredictor_params(object):
         self.step = 15
 
         #self.move_status = ['', 'stand', 'sit', 'walk', 'walk close', 'walk away', 'sit down', 'stand up']
-        self.move_status = ['', 'Not Crossing', 'Not Crossing', 'Crossing', 'walk close', 'walk away', 'Not Crossing', 'Not Crossing']
+        self.move_status = ['', 'Not Crossing', 'Not Crossing', 'Crossing', 'walk close', 'walk away', 'sit down', 'stand up']
 
         self.c = np.random.rand(32, 3) * 255
 
@@ -45,26 +43,35 @@ class actionPredictor(object):
 
     #@staticmethod
     def move_status(self, joints):
+        # All move and actions are based on the joints info difference from the newest frame and oldest frame
 
         init_x = float(joints[0][1][0] + joints[0][8][0] + joints[0][11][0]) / 3
         init_y = float(joints[0][1][1] + joints[0][8][1] + joints[0][11][1]) / 3
         end_x = float(joints[-1][1][0] + joints[-1][8][0] + joints[-1][11][0]) / 3
         end_y = float(joints[-1][1][1] + joints[-1][8][1] + joints[-1][11][1]) / 3
 
+        # Upper body height change
         init_h1 = float(joints[0][8][1] + joints[0][11][1]) / 2 - joints[0][1][1]
         end_h1 = float(joints[-1][8][1] + joints[-1][11][1]) / 2 - joints[-1][1][1]
+        # Upper body height change rate
         try:
             h1 = end_h1 / init_h1
         except:
             h1 = 0.0
+        
+        # Thigh height change
         init_h2 = (float(joints[0][9][1] + joints[0][12][1]) - float(joints[0][8][1] + joints[0][11][1])) / 2
         end_h2 = (float(joints[-1][9][1] + joints[-1][12][1]) - float(joints[-1][8][1] + joints[-1][11][1])) / 2
+        # Thigh height change rate
         try:
             h2 = end_h2 / init_h2
         except:
             h2 = 0.0
+
+        # Upper body center change
         xc = end_x - init_x
         yc = end_y - init_y
+
         if abs(xc) < 30. and abs(yc) < 20.:
             ty_1 = float(joints[-1][1][1])
             ty_8 = float(joints[-1][8][1] + joints[-1][11][1]) / 2
@@ -83,11 +90,9 @@ class actionPredictor(object):
                 if t < 1.7:
                     if h1 >= 1.08:
                         return 4
-                        #return 3
 
                     elif h1 < 0.92:
                         return 5
-                        #return 3
                     else:
                         return 0
                 else:
@@ -111,19 +116,20 @@ class actionPredictor(object):
             th_yc = 0.1
             if yc >= 25 and abs(end_yc - init_yc) >= th_yc:
                 return 6
-                #return 1
+
             elif yc < -20 and abs(end_yc - init_yc) >= th_yc:
                 return 7
-                #return 2
+
             else:
                 return 0
+
         elif abs(xc) > 30. and abs(yc) < 30.:
             return 3
+
         else:
             return 0
 
     def act_mv_avg(self, joints):
-        #step = len(joints[])
         pass
 
 class actions(object):
